@@ -116,19 +116,35 @@ def format_context(documents: List[str], metadatas: List[Dict]) -> str:
     if not documents:
         return ""
     
-    # TODO: Initialize list with header text for context section
+    # Initialize list with header text for context section
+    context = ["# CONTEXT \n"]
 
-    # TODO: Loop through paired documents and their metadata using enumeration
-        # TODO: Extract mission information from metadata with fallback value
-        # TODO: Clean up mission name formatting (replace underscores, capitalize)
-        # TODO: Extract source information from metadata with fallback value  
-        # TODO: Extract category information from metadata with fallback value
-        # TODO: Clean up category name formatting (replace underscores, capitalize)
+    # Loop through paired documents and their metadata using enumeration
+    for i, (doc, meta) in enumerate(zip(documents, metadatas)):
+        # Extract mission information from metadata with fallback value
+        meta = meta or {}
+        mission = str(meta.get("mission", "unknown"))
+        # Clean up mission name formatting (replace underscores, capitalize)
+        mission = mission.replace("_", " ").strip().title()
+        # Extract source information from metadata with fallback value  
+        source = str(meta.get("source", meta.get("file", meta.get("filename", "unknown"))))
+        # Extract category information from metadata with fallback value
+        category = str(meta.get("category", "none"))
+        # Clean up category name formatting (replace underscores, capitalize)
+        category = category.replace("_", " ").strip().title()
+        # Create formatted source header with index number and extracted information
+        header = f"[{i}] Mission: {mission} | Category: {category} | Source: {source}"
+        # Add source header to context parts list
+        context.append(header)
         
-        # TODO: Create formatted source header with index number and extracted information
-        # TODO: Add source header to context parts list
-        
-        # TODO: Check document length and truncate if necessary
-        # TODO: Add truncated or full document content to context parts list
+        # Check document length and truncate if necessary
+        max_chars = 1200
+        doc_text = doc.strip() if isinstance(str, doc) else str(doc)
+        if len(doc_text) > max_chars:
+            doc_text = doc_text[: max_chars-3] + "..."
+        # Add truncated or full document content to context parts list
+        context.append(doc_text)
+        context.append("")
 
-    # TODO: Join all context parts with newlines and return formatted string
+    # Join all context parts with newlines and return formatted string
+    return "\n".join(context).strip()
