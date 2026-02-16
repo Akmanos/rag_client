@@ -10,24 +10,30 @@ def discover_chroma_backends() -> Dict[str, Dict[str, str]]:
     current_dir = Path(".")
 
     # Look for ChromaDB directories
-    chroma_dir = set()
+    sqlite_candidates = ("chroma.sqlite3", "chroma.sqlite")
+    chroma_dirs = set()
     curr = current_dir.resolve()
-    for path in curr.rglob("*.sqlite*"):
-        if path.is_dir() and "chroma" in path.name.lower():
-            chroma_dir.add(path)
+
+    for name in sqlite_candidates:
+        for p in curr.rglob(name):
+            if p.is_file():
+                chroma_dirs.add(p.parent)
+
     # Create list of directories that match specific criteria (directory type and name pattern)
+    # search under data/<mission>/... if present
     data_root = curr / "data"
     if data_root.exists() and data_root.is_dir():
-        for mission in ("apollo13", "apollo11", "challenger"):
+        for mission in ("apollo11", "apollo13", "challenger"):
             mission_dir = data_root / mission
             if not (mission_dir.exists() and mission_dir.is_dir()):
                 continue
-            for path in mission_dir.rglob("*.sqlite*"):
-                if path.is_file():
-                    chroma_dir.add(path.parent)
+            for name in sqlite_candidates:
+                for p in mission_dir.rglob(name):
+                    if p.is_file():
+                        chroma_dirs.add(p.parent)
 
     # Loop through each discovered directory
-    for chroma_path in chroma_dir:
+    for chroma_path in chroma_dirs:
         path = str(chroma_path.relative_to(curr))
         # Wrap connection attempt in try-except block for error handling
         try:
@@ -78,17 +84,20 @@ def discover_chroma_backends() -> Dict[str, Dict[str, str]]:
 
 def initialize_rag_system(chroma_dir: str, collection_name: str):
     """Initialize the RAG system with specified backend (cached for performance)"""
-
-    # Create a chomadb persistentclient
-    client = chromadb.PersistentClient(
-        path=chroma_dir,
-        settings=Settings(
-            anonymized_telemetry=False,  # Disable telemetry for privacy
-            allow_reset=True             # Allow database reset for development
+    try:
+        # Create a chomadb persistentclient
+        client = chromadb.PersistentClient(
+            path=chroma_dir,
+            settings=Settings(
+                anonymized_telemetry=False,  # Disable telemetry for privacy
+                allow_reset=True             # Allow database reset for development
+            )
         )
-    )
-    # Return the collection with the collection_name
-    return client.get_collection(name=collection_name)
+        # Return the collection with the collection_name
+        collection = client.get_collection(name=collection_name)
+        return collection, True, ""
+    except Exception as e:
+        return None, False, str(e)
 
 
 def retrieve_documents(collection, query: str, n_results: int = 3,
@@ -121,10 +130,10 @@ def format_context(documents: List[str], metadatas: List[Dict]) -> str:
         return ""
 
     # Initialize list with header text for context section
-    context = ["# CONTEXT \n"]
+    context = ["# CONTEXT\n"]
 
     # Loop through paired documents and their metadata using enumeration
-    for i, (doc, meta) in enumerate(zip(documents, metadatas)):
+    for i, (doc, meta) in enumerate(zip(documents, metadatas), start=1):
         # Extract mission information from metadata with fallback value
         meta = meta or {}
         mission = str(meta.get("mission", "unknown"))
@@ -134,7 +143,10 @@ def format_context(documents: List[str], metadatas: List[Dict]) -> str:
         source = str(meta.get("source", meta.get(
             "file", meta.get("filename", "unknown"))))
         # Extract category information from metadata with fallback value
-        category = str(meta.get("category", "none"))
+        category = str(
+            meta.get("document_category", meta.get(
+                "category", "uncategorized"))
+        )
         # Clean up category name formatting (replace underscores, capitalize)
         category = category.replace("_", " ").strip().title()
         # Create formatted source header with index number and extracted information

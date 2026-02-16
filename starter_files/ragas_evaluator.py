@@ -18,39 +18,49 @@ def evaluate_response_quality(question: str, answer: str, contexts: List[str]) -
     """Evaluate response quality using RAGAS metrics"""
     if not RAGAS_AVAILABLE:
         return {"error": "RAGAS not available"}
+    try:
+        # Create evaluator LLM with model gpt-3.5-turbo
+        evaluator_llm = LangchainLLMWrapper(
+            ChatOpenAI(
+                model="gpt-3.5-turbo",
+                temperature=0,
+                base_url="https://openai.vocareum.com/v1",
+            )
+        )
 
-    # Create evaluator LLM with model gpt-3.5-turbo
-    # (LangChain -> RAGAS wrapper)
-    evaluator_llm = LangchainLLMWrapper(
-        ChatOpenAI(model="gpt-3.5-turbo", temperature=0)
-    )
+        # Create evaluator_embeddings with model test-embedding-3-small
+        evaluator_embeddings = LangchainEmbeddingsWrapper(
+            OpenAIEmbeddings(
+                model="text-embedding-3-small",
+                base_url="https://openai.vocareum.com/v1",
+            )
+        )
 
-    # Create evaluator_embeddings with model text-embedding-3-small
-    evaluator_embeddings = LangchainEmbeddingsWrapper(
-         OpenAIEmbeddings(model="text-embedding-3-small")
-         )
+        # Define an instance for each metric to evaluate
+        metrics = [
+            BleuScore(),
+            RougeScore(),
+            # This metric requires a ground-truth reference answer in the sample.
+            # chat.py does not provide a reference, so we conditionally remove it below.
+            NonLLMContextPrecisionWithReference(),
+            ResponseRelevancy(llm=evaluator_llm,
+                              embeddings=evaluator_embeddings),
+            Faithfulness(llm=evaluator_llm),
+        ]
 
-     # Define an instance for each metric to evaluate
-     metrics = [
-          BleuScore(),
-          RougeScore(),
-          # requires reference/ground truth in sample
-          NonLLMContextPrecisionWithReference(),
-          ResponseRelevancy(llm=evaluator_llm,
-                             embeddings=evaluator_embeddings),
-          Faithfulness(llm=evaluator_llm),
-          ]
-
-      # Evaluate the response using the metrics
-      sample_kwargs = {
-           "user_input": question,
+        # Evaluate the response using the metrics
+        sample_kwargs = {
+            "user_input": question,
             "response": answer,
             "retrieved_contexts": contexts or [],
-           }
+        }
 
-       if "reference" not in sample_kwargs:
-            metrics = [m for m in metrics if not isinstance(
-                m, NonLLMContextPrecisionWithReference)]
+        # If you don't have a reference answer, remove the reference-required metric.
+        if "reference" not in sample_kwargs:
+            metrics = [
+                m for m in metrics
+                if not isinstance(m, NonLLMContextPrecisionWithReference)
+            ]
 
         sample = SingleTurnSample(**sample_kwargs)
 
@@ -62,7 +72,6 @@ def evaluate_response_quality(question: str, answer: str, contexts: List[str]) -
         # Return the evaluation results
         out: Dict[str, float] = {}
         try:
-            # RAGAS returns a pandas-like table; easiest path is to_dict() then flatten.
             d = result.to_pandas().to_dict(orient="records")[0]
             for k, v in d.items():
                 if k in {"user_input", "response", "retrieved_contexts", "reference"}:
@@ -70,10 +79,8 @@ def evaluate_response_quality(question: str, answer: str, contexts: List[str]) -
                 try:
                     out[k] = float(v)
                 except Exception:
-                    # keep non-floatable values out
                     pass
         except Exception:
-            # fallback: result may already behave like a dict in some versions
             try:
                 for k, v in dict(result).items():
                     try:
@@ -82,4 +89,7 @@ def evaluate_response_quality(question: str, answer: str, contexts: List[str]) -
                         pass
             except Exception as e:
                 return {"error": f"Failed to parse RAGAS result: {e}"}
+
         return out
+    except Exception as e:
+        return {"error": f"Evaluation failed: {e}"}

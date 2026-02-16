@@ -18,17 +18,12 @@ CONTEXT:
 {context}
 """
     # Set context in messages
-    conversation_history.append(
-        {
-            "role": "system",
-            "content": persona
-        }
-    )
+    messages: List[Dict[str, str]] = [{"role": "system", "content": persona}]
+    # Add prior conversation (bounded to prevent token blowups)
+    if conversation_history:
+        messages.extend(conversation_history[-20:])
     # Add chat history
-    conversation_history.append({
-        "role": "user",
-        "content": user_message
-    })
+    messages.append({"role": "user", "content": user_message})
     # Create OpenAI Client
     try:
         openai_client = OpenAI(
@@ -38,12 +33,11 @@ CONTEXT:
         # Send request to OpenAI
         response = openai_client.chat.completions.create(
             model=model,
-            messages=conversation_history,
+            messages=messages,
             temperature=0,
-            max_completion_tokens=200,
+            max_tokens=300,
         )
         print(response)
         return response.choices[0].message.content
     except Exception as e:
-        print(str(e))
-        return None
+        return f"Error generating response: {e}"

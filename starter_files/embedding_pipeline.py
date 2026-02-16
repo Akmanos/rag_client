@@ -62,7 +62,10 @@ class ChromaEmbeddingPipelineTextOnly:
             chunk_overlap: Overlap between chunks
         """
         # Initialize OpenAI client
-        self.client = OpenAI(api_key=openai_api_key)
+        self.client = OpenAI(
+            base_url="https://openai.vocareum.com/v1",
+            api_key=openai_api_key
+        )
         # Store configuration parameters
         self.chroma_persist_directory = chroma_persist_directory
         self.collection_name = collection_name
@@ -111,10 +114,11 @@ class ChromaEmbeddingPipelineTextOnly:
             data = dict(metadata)
             data["chunk_index"] = 0
             data["chunk_start"] = 0
-            data["num_chunks"] = 1
             data["chunk_end"] = len(text)
             data["chunk_chars"] = len(text)
             data["num_chunks"] = 1
+            return [(text, data)]
+
         # Implement chunking logic with overlap
         chunks = []
         n = len(text)
@@ -122,24 +126,24 @@ class ChromaEmbeddingPipelineTextOnly:
         while start < n:
             end = min(start + self.chunk_size, n)
             if end < n:
-            window = text[start:end]
+                window = text[start:end]
 
-            # Prefer breaking at newline, then sentence punctuation, near the end of the window.
-            # We look for the last suitable breakpoint in the window.
-            breakpoints = [
-                window.rfind("\n"),
-                window.rfind(". "),
-                window.rfind("? "),
-                window.rfind("! "),
-                window.rfind("; "),
-                window.rfind(": "),
-            ]
-            bp = max(breakpoints)
+                # Prefer breaking at newline, then sentence punctuation, near the end of the window.
+                # We look for the last suitable breakpoint in the window.
+                breakpoints = [
+                    window.rfind("\n"),
+                    window.rfind(". "),
+                    window.rfind("? "),
+                    window.rfind("! "),
+                    window.rfind("; "),
+                    window.rfind(": "),
+                ]
+                bp = max(breakpoints)
 
-            # Only use it if it’s not too early (avoid tiny chunks).
-            # (e.g. must be at least 60% of chunk_size)
-            if bp != -1 and bp >= int(self.chunk_size * 0.6):
-                end = start + bp + 1
+                # Only use it if it’s not too early (avoid tiny chunks).
+                # (e.g. must be at least 60% of chunk_size)
+                if bp != -1 and bp >= int(self.chunk_size * 0.6):
+                    end = start + bp + 1
             chunk = text[start:end].strip()
             if chunk:
                 # Create metadata for each chunk
@@ -155,10 +159,9 @@ class ChromaEmbeddingPipelineTextOnly:
                 break
             # next start with overlap
             start = max(0, end - self.chunk_overlap)
-
-            # Safety: if overlap config is pathological (>= chunk_size), ensure progress
             if start >= end:
                 start = end
+
         # Fill in total number of chunks
         total = len(chunks)
         for _, data in chunks:
@@ -182,7 +185,6 @@ class ChromaEmbeddingPipelineTextOnly:
             return bool(res and res.get("ids"))
         except Exception:
             return False
-        pass
 
     def update_document(self, doc_id: str, text: str, metadata: Dict[str, Any]) -> bool:
         """
